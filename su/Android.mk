@@ -3,13 +3,21 @@ include $(CLEAR_VARS)
 
 LOCAL_SRC_FILES:= su.c
 
-LOCAL_MODULE:= su
+LOCAL_MODULE:= suw
 
 LOCAL_FORCE_STATIC_EXECUTABLE := true
 
-LOCAL_STATIC_LIBRARIES := libc
+LOCAL_STATIC_LIBRARIES := libc libcutils
 
 LOCAL_MODULE_PATH := $(TARGET_OUT_OPTIONAL_EXECUTABLES)
-LOCAL_MODULE_TAGS := debug
+LOCAL_MODULE_TAGS := optional
 
 include $(BUILD_EXECUTABLE)
+
+include $(CLEAR_VARS) 
+
+
+LOCAL_SRC_FILES += allowsu.wmt!sh:system/xbin/allowsu.wmt!sh
+LOCAL_SRC_FILES += prohibitsu.wmt!sh:system/xbin/prohibitsu.wmt!sh
+
+include $(WMT_PREBUILT)

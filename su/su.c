@@ -16,6 +16,8 @@
 */
 
 #define LOG_TAG "su"
+#define SOCKET_NAME "su-wmt"
+#define SU_YES "y"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -30,6 +32,10 @@
 #include <pwd.h>
 
 #include <private/android_filesystem_config.h>
+#include <cutils/properties.h>
+
+#include <sys/socket.h>
+#include <cutils/sockets.h>
 
 /*
  * SU can be given a specific command to exec. UID _must_ be
@@ -43,13 +49,15 @@ int main(int argc, char **argv)
 {
     struct passwd *pw;
     int uid, gid, myuid;
+	
+	char value[PROPERTY_VALUE_MAX];
+    size_t i;
+	
+	int fd;
+	char str[20];
+	char sendStr[20];
 
-    /* Until we have something better, only root and the shell can use su. */
     myuid = getuid();
-    if (myuid != AID_ROOT && myuid != AID_SHELL) {
-        fprintf(stderr,"su: uid %d not allowed to su\n", myuid);
-        return 1;
-    }
 
     if(argc < 2) {
         uid = gid = 0;
@@ -63,11 +71,65 @@ int main(int argc, char **argv)
             gid = pw->pw_gid;
         }
     }
+	
+    static const char * props[] = {
+        "debug.su",
+        "debug.su.force",
+        "persist.debug.su",
+    };
 
-    if(setgid(gid) || setuid(uid)) {
-        fprintf(stderr,"su: permission denied\n");
-        return 1;
+    for(i = 0; i < sizeof(props) / sizeof(props[0]); i++){
+        property_get(props[i], value, "0");
+//        printf("check %s\n", props[i]);
+        if(!strcmp(value, "1")){
+            i = 888;
+            break;
+        }
     }
+    
+	if(i == 888){
+		if(setgid(gid) || setuid(uid)) {
+			fprintf(stderr,"su: permission denied\n");
+			return 1;
+		}
+		fprintf(stderr,"su: su successfully\n");
+	}else{
+	
+		fd = socket_local_client(SOCKET_NAME, ANDROID_SOCKET_NAMESPACE_ABSTRACT, SOCK_STREAM);
+
+		if(fd < 0){
+			fprintf(stderr,"su: uid %d can not connent to SuService\n", myuid);
+			return 1;
+		}
+
+		sprintf(sendStr, "%d\n", myuid);
+
+		if(write(fd, sendStr, strlen(sendStr)) == -1){
+			close(fd);
+			fprintf(stderr,"su: uid %d write error\n", myuid);
+			return 1;
+		}
+
+		if(read(fd, str, 1) == -1){
+			close(fd);
+			fprintf(stderr,"su: uid %d read error\n", myuid);
+			return 1;
+		}
+
+		if(str[0] == 'y'){
+			close(fd);
+			if(setgid(gid) || setuid(uid)) {
+				fprintf(stderr,"su: permission denied\n");
+				return 1;
+			}
+			fprintf(stderr,"su: su successfully\n", myuid);
+		}
+		else{
+			close(fd);
+			fprintf(stderr,"su: uid %d not allowed to su\n", myuid);
+			return 1;
+		}
+	}
 
     /* User specified command for exec. */
     if (argc == 3 ) {
@@ -89,8 +151,16 @@ int main(int argc, char **argv)
     }
 
     /* Default exec shell. */
-    execlp("/system/bin/sh", "sh", NULL);
+	setenv("PS1", "\\w \\$ ", 1);
+	setenv("LS_COLORS", "none", 1);
+
+	//perfer busybox sh
+    execlp("/bin/sh", "sh", NULL);
+	
+	//fallback android default sh
+	execlp("/system/bin/sh", "sh", NULL);
 
     fprintf(stderr, "su: exec failed\n");
     return 1;
 }
+
